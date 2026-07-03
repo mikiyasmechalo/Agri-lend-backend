@@ -1,0 +1,41 @@
+# Internal API contract with Amanuel (credit scoring / ML model service)
+# Consumes credit score, risk tier, and explainability output.
+
+from app.core.config import settings
+import httpx
+
+
+class ScoringService:
+    def __init__(self):
+        self.base_url = settings.amanuel_service_url
+        self.client = httpx.AsyncClient(timeout=30)
+
+    async def get_credit_score(self, farmer_id: str) -> dict:
+        response = await self.client.get(
+            f"{self.base_url}/api/v1/score/{farmer_id}",
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_explainability(self, farmer_id: str) -> dict:
+        response = await self.client.get(
+            f"{self.base_url}/api/v1/explain/{farmer_id}",
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_heatmap_data(self, params: dict) -> dict:
+        response = await self.client.get(
+            f"{self.base_url}/api/v1/heatmap",
+            params=params,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_model_metrics(self) -> dict:
+        response = await self.client.get(f"{self.base_url}/api/v1/metrics")
+        response.raise_for_status()
+        return response.json()
+
+    async def close(self):
+        await self.client.aclose()
