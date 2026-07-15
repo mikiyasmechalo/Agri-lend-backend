@@ -21,6 +21,10 @@ class LoanService:
         await self.db.flush()
         return app
 
+    async def get_by_id(self, app_id: str) -> LoanApplication | None:
+        result = await self.db.execute(select(LoanApplication).where(LoanApplication.id == app_id))
+        return result.scalar_one_or_none()
+
     async def get_applications(self, farmer_id: str | None = None, status: LoanStatus | None = None) -> list[LoanApplication]:
         query = select(LoanApplication).order_by(desc(LoanApplication.submitted_at))
         if farmer_id:

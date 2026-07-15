@@ -26,6 +26,8 @@ Mikiyas's mandate is "The Brain's" delivery layer: server-side business logic, d
 ## Phase 1 — Authentication & User Management
 *(Shared backbone for all three "Marketplace" surfaces)*
 
+Decision: Keep initial auth simple — password-based login for Farmer, Bank, and Admin alike, one shared User/Role table, one JWT shape. Phone-based OTP login for farmers (hinted at by their low-digital-literacy profile in SRS 2.2.1) is deferred to a later phase once the core system is working end-to-end. See "Deferred" section below.
+
 - [ ] Farmer / Bank / Admin registration endpoints (Sign Up) — MVP 1.2, 1.3
 - [ ] Login endpoint with JWT issuance + refresh token flow (Sign In)
 - [ ] Password hashing via bcrypt (NFR-SEC006)
@@ -107,6 +109,7 @@ Mikiyas's mandate is "The Brain's" delivery layer: server-side business logic, d
 
 ## Explicitly Out of Scope for MVP (per Team Roles Doc)
 
+- Phone-based OTP login for farmers — password auth used for all roles initially; revisit once core flows are stable
 - Full National Digital ID API integration (simulate only)
 - Traditional banking / alternative financial history integration
 - Live mobile money integration (SRS Phase 3) — stub/mock if a frontend dependency needs it, coordinate with Eyosiyas's mock-data fallback strategy

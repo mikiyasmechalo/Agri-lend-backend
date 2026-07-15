@@ -1,20 +1,25 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from app.models.auth import User, Role
-from app.schemas.auth import UserCreate
-from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
+from app.models.audit import AuditLog
+from app.schemas.auth import UserCreate, UserUpdate
+from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
+from uuid import UUID
+from datetime import datetime, timezone
 
 
 class AuthService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def _get_role(self, role_name: str) -> Role | None:
+        result = await self.db.execute(select(Role).where(Role.name == role_name))
+        return result.scalar_one_or_none()
+
     async def register_user(self, data: UserCreate) -> User:
-        result = await self.db.execute(select(Role).where(Role.name == data.role_name))
-        role = result.scalar_one_or_none()
+        role = await self._get_role(data.role_name)
         if not role:
             raise ValueError(f"Role '{data.role_name}' not found")
-
         user = User(
             email=data.email,
             phone_number=data.phone_number,
@@ -31,10 +36,95 @@ class AuthService:
         user = result.scalar_one_or_none()
         if not user or not verify_password(password, user.hashed_password):
             return None
+        if not user.is_active:
+            return None
         access = create_access_token(str(user.id), user.role.name)
         refresh = create_refresh_token(str(user.id))
         return user, access, refresh
 
+    async def refresh_access_token(self, refresh_token: str) -> tuple[str, str] | None:
+        payload = decode_token(refresh_token)
+        if not payload or payload.get("type") != "refresh":
+            return None
+        user = await self.get_user_by_id(payload["sub"])
+        if not user or not user.is_active:
+            return None
+        access = create_access_token(str(user.id), user.role.name)
+        return access, refresh_token
+
     async def get_user_by_id(self, user_id: str) -> User | None:
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
+
+    async def get_all_users(self) -> list[dict]:
+        result = await self.db.execute(
+            select(User, Role.name).join(Role, User.role_id == Role.id).order_by(User.created_at.desc())
+        )
+        rows = result.all()
+        return [
+            {
+                "id": u.id,
+                "email": u.email,
+                "full_name": u.full_name,
+                "role_name": role_name,
+                "is_active": u.is_active,
+                "locale": u.locale,
+                "created_at": u.created_at,
+            }
+            for u, role_name in rows
+        ]
+
+    async def admin_create_user(self, data: UserCreate) -> User:
+        return await self.register_user(data)
+
+    async def assign_role(self, user_id: str, role_name: str) -> User | None:
+        role = await self._get_role(role_name)
+        if not role:
+            raise ValueError(f"Role '{role_name}' not found")
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            return None
+        user.role_id = role.id
+        await self.db.flush()
+        return user
+
+    async def update_user(self, user_id: str, data: UserUpdate) -> User | None:
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            return None
+        if data.full_name is not None:
+            user.full_name = data.full_name
+        if data.phone_number is not None:
+            user.phone_number = data.phone_number
+        if data.locale is not None:
+            user.locale = data.locale
+        await self.db.flush()
+        return user
+
+    async def deactivate_user(self, user_id: str) -> User | None:
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            return None
+        user.is_active = False
+        await self.db.flush()
+        return user
+
+    async def delete_user(self, user_id: str) -> bool:
+        user = await self.get_user_by_id(user_id)
+        if not user:
+            return False
+        await self.db.delete(user)
+        await self.db.flush()
+        return True
+
+    async def log_audit(self, user_id: str, action: str, resource: str, resource_id: str, details: str | None = None, ip: str | None = None) -> None:
+        log = AuditLog(
+            user_id=user_id,
+            action=action,
+            resource=resource,
+            resource_id=resource_id,
+            details=details,
+            ip_address=ip,
+        )
+        self.db.add(log)
+        await self.db.flush()

@@ -36,6 +36,15 @@ async def list_loans(
     return await service.get_applications(farmer_id, status)
 
 
+@router.get("/{app_id}", response_model=LoanApplicationResponse)
+async def get_loan_status(app_id: str, db: AsyncSession = Depends(get_db), _: dict = Depends(get_current_user)):
+    service = LoanService(db)
+    app = await service.get_by_id(app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Loan application not found")
+    return app
+
+
 @router.patch("/{app_id}/review", response_model=LoanApplicationResponse)
 async def review_loan(
     app_id: str,

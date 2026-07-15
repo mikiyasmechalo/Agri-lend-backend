@@ -13,6 +13,8 @@ async def lifespan(app: FastAPI):
     logger.info("Starting AgriLend backend — environment: %s", settings.environment)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    from app.seed import seed_roles
+    await seed_roles()
     yield
     await engine.dispose()
 

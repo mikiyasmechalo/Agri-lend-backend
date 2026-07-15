@@ -7,10 +7,10 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug: bool = True
 
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agrilend"
-    database_sync_url: str = "postgresql://postgres:postgres@localhost:5432/agrilend"
+    database_url: str = "sqlite+aiosqlite:///./agrilend_dev.db"
+    database_sync_url: str = "sqlite:///./agrilend_dev.db"
 
-    jwt_secret_key: str = "change-me"
+    jwt_secret_key: str = "change-me-to-a-long-random-string"
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> List[str]:
         return json.loads(self.cors_origins)
+
+    @property
+    def is_postgres(self) -> bool:
+        return "postgresql" in self.database_url
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 
