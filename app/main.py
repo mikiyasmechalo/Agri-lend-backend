@@ -5,7 +5,7 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.db.base import Base
 from app.db.session import engine
-from app.routers.v1 import auth, farmers, banks, loans, admin
+from app.routers.v1 import auth, farmers, banks, loans, admin, brain
 
 
 @asynccontextmanager
@@ -42,6 +42,7 @@ app.include_router(farmers.router, prefix="/api/v1")
 app.include_router(loans.router, prefix="/api/v1")
 app.include_router(banks.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(brain.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")
