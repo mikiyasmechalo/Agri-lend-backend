@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timezone
+from typing import Optional
 from app.db.session import get_db
 from app.schemas.auth import UserCreate, UserUpdate, UserAdminResponse, RoleAssignment, RoleResponse
 from app.schemas.admin import (
@@ -9,6 +10,7 @@ from app.schemas.admin import (
     ModelMetrics, ErrorAnalysis, BiasIndicator, DriftStatus,
     ModelVersionInfo, PipelineStatus,
 )
+from app.schemas import PaginatedResponse
 from app.services.auth import AuthService
 from app.services.admin import AdminService
 from app.core.dependencies import get_current_user, require_roles
@@ -18,7 +20,9 @@ from app.models.auth import Role
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
-@router.get("/roles", response_model=list[RoleResponse])
+@router.get("/roles", response_model=list[RoleResponse],
+            summary="List all roles",
+            description="Returns all available roles in the system.")
 async def list_roles(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
@@ -27,16 +31,26 @@ async def list_roles(
     return list(result.scalars().all())
 
 
-@router.get("/users", response_model=list[UserAdminResponse])
+@router.get("/users", response_model=PaginatedResponse[UserAdminResponse],
+            summary="List all users (paginated)",
+            description="Returns a paginated list of all registered users. Requires Platform Admin.",
+            responses={403: {"description": "Insufficient permissions"}})
 async def list_users(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    role: Optional[str] = Query(None, description="Filter by role name"),
+    search: Optional[str] = Query(None, description="Search by name or email"),
     db: AsyncSession = Depends(get_db),
     admin: dict = Depends(require_roles("Platform Admin")),
 ):
     service = AuthService(db)
-    return await service.get_all_users()
+    return await service.get_all_users(page=page, page_size=page_size, role=role, search=search)
 
 
-@router.post("/users", status_code=status.HTTP_201_CREATED)
+@router.post("/users", status_code=status.HTTP_201_CREATED,
+             summary="Create a user (admin)",
+             description="Admin-only endpoint to create a new user with any role.",
+             responses={400: {"description": "Validation error"}})
 async def admin_create_user(
     data: UserCreate,
     request: Request,
@@ -67,7 +81,10 @@ async def admin_create_user(
     }
 
 
-@router.patch("/users/{user_id}/role")
+@router.patch("/users/{user_id}/role",
+              summary="Assign user role",
+              description="Change a user's role. Requires Platform Admin.",
+              responses={400: {"description": "Role not found"}, 404: {"description": "User not found"}})
 async def assign_role(
     user_id: str,
     data: RoleAssignment,
@@ -93,7 +110,10 @@ async def assign_role(
     return {"detail": f"Role set to {data.role_name}"}
 
 
-@router.patch("/users/{user_id}")
+@router.patch("/users/{user_id}",
+              summary="Update user (admin)",
+              description="Update any user's profile fields. Requires Platform Admin.",
+              responses={404: {"description": "User not found"}})
 async def admin_update_user(
     user_id: str,
     data: UserUpdate,
@@ -116,7 +136,10 @@ async def admin_update_user(
     return {"detail": "User updated"}
 
 
-@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT,
+               summary="Delete user",
+               description="Permanently delete a user. Requires Platform Admin.",
+               responses={404: {"description": "User not found"}})
 async def delete_user(
     user_id: str,
     request: Request,
@@ -136,7 +159,10 @@ async def delete_user(
     )
 
 
-@router.patch("/users/{user_id}/deactivate")
+@router.patch("/users/{user_id}/deactivate",
+              summary="Deactivate user",
+              description="Deactivate a user account (prevents login). Requires Platform Admin.",
+              responses={404: {"description": "User not found"}})
 async def deactivate_user(
     user_id: str,
     request: Request,
@@ -157,7 +183,10 @@ async def deactivate_user(
     return {"detail": "User deactivated"}
 
 
-@router.post("/banks/{bank_id}/activate")
+@router.post("/banks/{bank_id}/activate",
+              summary="Activate a bank",
+              description="Activate a bank partner in the system. Requires Platform Admin.",
+              responses={404: {"description": "Bank not found"}})
 async def activate_bank(
     bank_id: str,
     request: Request,
@@ -183,7 +212,9 @@ async def activate_bank(
 
 # ─── Reports ────────────────────────────────────────────────────────
 
-@router.get("/reports/farmers", response_model=FarmerOnboardingReport)
+@router.get("/reports/farmers", response_model=FarmerOnboardingReport,
+            summary="Farmer onboarding report",
+            description="Returns counts of registered, consented, land-verified, and mobile-money-linked farmers.")
 async def farmer_report(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
@@ -192,7 +223,9 @@ async def farmer_report(
     return await service.farmer_onboarding_report()
 
 
-@router.get("/reports/loans", response_model=LoanReport)
+@router.get("/reports/loans", response_model=LoanReport,
+            summary="Loan activity report",
+            description="Returns counts of submitted, approved, rejected, pending, and disbursed loans.")
 async def loan_report(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
@@ -201,7 +234,9 @@ async def loan_report(
     return await service.loan_report()
 
 
-@router.get("/reports/credit-scores", response_model=CreditScoreReport)
+@router.get("/reports/credit-scores", response_model=CreditScoreReport,
+            summary="Credit score report",
+            description="Returns average, min, max scores and regional distribution.")
 async def credit_score_report(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
@@ -210,7 +245,9 @@ async def credit_score_report(
     return await service.credit_score_report()
 
 
-@router.get("/reports/risk", response_model=RiskReport)
+@router.get("/reports/risk", response_model=RiskReport,
+            summary="Risk & portfolio report",
+            description="Returns default rate, active loans, risk tier counts, and geo clusters.")
 async def risk_report(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
@@ -221,7 +258,9 @@ async def risk_report(
 
 # ─── ML Performance ────────────────────────────────────────────────
 
-@router.get("/ml/metrics", response_model=ModelMetrics)
+@router.get("/ml/metrics", response_model=ModelMetrics,
+            summary="ML model metrics",
+            description="Returns accuracy, precision, recall, F1 for the credit scoring model.")
 async def ml_metrics(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
@@ -230,7 +269,9 @@ async def ml_metrics(
     return await service.get_model_metrics()
 
 
-@router.get("/ml/error-analysis", response_model=ErrorAnalysis)
+@router.get("/ml/error-analysis", response_model=ErrorAnalysis,
+            summary="ML error analysis",
+            description="Returns misclassification breakdown by region and crop type.")
 async def ml_error_analysis(
     _: dict = Depends(require_roles("Platform Admin")),
     db: AsyncSession = Depends(get_db),
@@ -252,7 +293,9 @@ async def ml_error_analysis(
     }
 
 
-@router.get("/ml/bias", response_model=list[BiasIndicator])
+@router.get("/ml/bias", response_model=list[BiasIndicator],
+            summary="ML bias & fairness indicators",
+            description="Returns bias scores for region, crop type, gender representation, and data balance.")
 async def ml_bias(
     _: dict = Depends(require_roles("Platform Admin")),
 ):
@@ -264,7 +307,9 @@ async def ml_bias(
     ]
 
 
-@router.get("/ml/drift", response_model=DriftStatus)
+@router.get("/ml/drift", response_model=DriftStatus,
+            summary="ML drift detection",
+            description="Returns feature and score drift status.")
 async def ml_drift(
     _: dict = Depends(require_roles("Platform Admin")),
 ):
@@ -276,16 +321,23 @@ async def ml_drift(
     }
 
 
-@router.get("/ml/versions", response_model=list[ModelVersionInfo])
+@router.get("/ml/versions",
+            summary="List model versions",
+            description="Returns paginated list of ML model versions.")
 async def ml_versions(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
 ):
     service = AdminService(db)
-    return await service.get_model_versions()
+    return await service.get_model_versions(page=page, page_size=page_size)
 
 
-@router.post("/ml/versions/{version_id}/rollback")
+@router.post("/ml/versions/{version_id}/rollback",
+             summary="Rollback model version",
+             description="Rollback the active ML model to a specified version. Requires Platform Admin.",
+             responses={404: {"description": "Model version not found"}})
 async def ml_rollback(
     version_id: str,
     db: AsyncSession = Depends(get_db),
@@ -300,7 +352,9 @@ async def ml_rollback(
 
 # ─── Data Pipeline Monitoring ──────────────────────────────────────
 
-@router.get("/pipelines", response_model=list[PipelineStatus])
+@router.get("/pipelines", response_model=list[PipelineStatus],
+            summary="Data pipeline monitoring",
+            description="Returns status of satellite, climate, and scoring data pipelines.")
 async def pipeline_status(
     _: dict = Depends(require_roles("Platform Admin")),
 ):

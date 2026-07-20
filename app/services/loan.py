@@ -4,6 +4,7 @@ from app.models.loan import LoanApplication, LoanStatus
 from app.models.farmer import FarmerProfile, FarmParcel
 from app.schemas.loan import LoanApplicationCreate, LoanListFilter
 from datetime import datetime, timezone
+from uuid import UUID as UUIDType
 
 
 class LoanService:
@@ -23,7 +24,11 @@ class LoanService:
         return app
 
     async def get_by_id(self, app_id: str) -> LoanApplication | None:
-        result = await self.db.execute(select(LoanApplication).where(LoanApplication.id == app_id))
+        try:
+            uid = UUIDType(app_id) if isinstance(app_id, str) else app_id
+        except ValueError:
+            return None
+        result = await self.db.execute(select(LoanApplication).where(LoanApplication.id == uid))
         return result.scalar_one_or_none()
 
     async def get_applications(self, farmer_id: str | None = None, status: LoanStatus | None = None) -> list[LoanApplication]:
@@ -177,12 +182,11 @@ class LoanService:
         ]
 
     async def review_application(self, app_id: str, status: LoanStatus, reviewer_id: str) -> LoanApplication | None:
-        result = await self.db.execute(select(LoanApplication).where(LoanApplication.id == app_id))
-        app = result.scalar_one_or_none()
+        app = await self.get_by_id(app_id)
         if not app:
             return None
         app.status = status
-        app.reviewed_by = reviewer_id
+        app.reviewed_by = UUIDType(reviewer_id) if reviewer_id else None
         app.reviewed_at = datetime.now(timezone.utc)
         await self.db.flush()
         return app

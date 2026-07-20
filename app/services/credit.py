@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func as sa_func
 from app.models.credit import CreditScoreRecord
 from app.schemas.credit import ExplainabilityResponse
 from app.services.scoring import ScoringService
@@ -18,13 +18,21 @@ class CreditService:
         )
         return result.scalar_one_or_none()
 
-    async def get_score_history(self, farmer_id: str) -> list[CreditScoreRecord]:
+    async def get_score_history(self, farmer_id: str, page: int = 1, page_size: int = 20) -> tuple[list[CreditScoreRecord], int]:
+        count_q = await self.db.execute(
+            select(sa_func.count(CreditScoreRecord.id))
+            .where(CreditScoreRecord.farmer_id == farmer_id)
+        )
+        total = count_q.scalar() or 0
+        offset = (page - 1) * page_size
         result = await self.db.execute(
             select(CreditScoreRecord)
             .where(CreditScoreRecord.farmer_id == farmer_id)
             .order_by(desc(CreditScoreRecord.calculated_at))
+            .offset(offset)
+            .limit(page_size)
         )
-        return list(result.scalars().all())
+        return list(result.scalars().all()), total
 
     async def get_explainability(self, farmer_id: str, score: CreditScoreRecord) -> ExplainabilityResponse:
         try:

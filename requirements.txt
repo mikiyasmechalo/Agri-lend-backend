@@ -12,3 +12,7 @@ httpx>=0.28.0
 aiosqlite>=0.20.0
 asyncpg>=0.30.0
 geoalchemy2>=0.15.0
+slowapi>=0.1.9
+pytest>=8.0.0
+pytest-asyncio>=0.25.0
+httpx>=0.28.0

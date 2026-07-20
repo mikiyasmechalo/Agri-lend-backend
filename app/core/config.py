@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     eyosiyas_service_url: str = "http://geospatial-service:8001"
     amanuel_service_url: str = "http://scoring-service:8002"
 
+    rate_limit_per_minute: int = 30
+    rate_limit_auth_per_minute: int = 10
+
     log_level: str = "INFO"
     audit_log_enabled: bool = True
 

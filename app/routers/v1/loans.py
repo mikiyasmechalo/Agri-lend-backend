@@ -16,7 +16,10 @@ from app.core.dependencies import get_current_user, require_roles
 router = APIRouter(prefix="/loans", tags=["Loans"])
 
 
-@router.post("/", response_model=LoanApplicationResponse, status_code=201)
+@router.post("/", response_model=LoanApplicationResponse, status_code=201,
+             summary="Create a loan application",
+             description="Submit a new loan application. Snapshots the farmer's current credit score at submission time.",
+             responses={403: {"description": "Insufficient permissions"}})
 async def create_loan(
     data: LoanApplicationCreate,
     db: AsyncSession = Depends(get_db),
@@ -29,16 +32,18 @@ async def create_loan(
     return await loan_service.create_application(data, score)
 
 
-@router.get("/")
+@router.get("/",
+            summary="List loan applications",
+            description="Returns filtered and paginated loan applications with farmer details.")
 async def list_loans(
-    farmer_id: Optional[str] = None,
-    status: Optional[LoanStatus] = None,
-    region: Optional[str] = None,
-    crop_type: Optional[str] = None,
-    min_amount: Optional[Decimal] = None,
-    max_amount: Optional[Decimal] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    farmer_id: Optional[str] = Query(None, description="Filter by farmer ID"),
+    status: Optional[LoanStatus] = Query(None, description="Filter by status (PENDING/APPROVED/REJECTED/DISBURSED)"),
+    region: Optional[str] = Query(None, description="Filter by region"),
+    crop_type: Optional[str] = Query(None, description="Filter by crop type"),
+    min_amount: Optional[Decimal] = Query(None, description="Minimum loan amount"),
+    max_amount: Optional[Decimal] = Query(None, description="Maximum loan amount"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ):
@@ -51,7 +56,10 @@ async def list_loans(
     return await service.get_filtered_applications(filters)
 
 
-@router.get("/reports/dashboard", response_model=DashboardReportResponse)
+@router.get("/reports/dashboard", response_model=DashboardReportResponse,
+            summary="Loan dashboard report",
+            description="Returns aggregated counts of loans by status. Requires Bank Analyst or higher.",
+            responses={403: {"description": "Insufficient permissions"}})
 async def dashboard_report(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
@@ -60,7 +68,10 @@ async def dashboard_report(
     return await service.get_dashboard_report()
 
 
-@router.get("/reports/high-risk", response_model=list[HighRiskLoanWarning])
+@router.get("/reports/high-risk", response_model=list[HighRiskLoanWarning],
+            summary="High-risk loan warnings",
+            description="Returns pending loans with credit scores below 500 (high risk).",
+            responses={403: {"description": "Insufficient permissions"}})
 async def high_risk_warnings(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
@@ -69,10 +80,13 @@ async def high_risk_warnings(
     return await service.get_high_risk_warnings()
 
 
-@router.get("/reports/heatmap", response_model=list[RiskHeatmapPoint])
+@router.get("/reports/heatmap", response_model=list[RiskHeatmapPoint],
+            summary="Risk heatmap data",
+            description="Returns GeoJSON risk heatmap data aggregated by region/crop. Falls back to mock data if Amanuel's service is unreachable.",
+            responses={403: {"description": "Insufficient permissions"}})
 async def risk_heatmap(
-    region: Optional[str] = None,
-    crop_type: Optional[str] = None,
+    region: Optional[str] = Query(None, description="Filter by region"),
+    crop_type: Optional[str] = Query(None, description="Filter by crop type"),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
 ):
@@ -88,7 +102,10 @@ async def risk_heatmap(
         ]
 
 
-@router.get("/{app_id}")
+@router.get("/{app_id}",
+            summary="Get loan application",
+            description="Returns a single loan application by ID.",
+            responses={404: {"description": "Loan application not found"}})
 async def get_loan_status(app_id: str, db: AsyncSession = Depends(get_db), _: dict = Depends(get_current_user)):
     service = LoanService(db)
     app = await service.get_by_id(app_id)
@@ -97,7 +114,10 @@ async def get_loan_status(app_id: str, db: AsyncSession = Depends(get_db), _: di
     return app
 
 
-@router.get("/{app_id}/detail")
+@router.get("/{app_id}/detail",
+            summary="Applicant full credit report",
+            description="Returns detailed credit report for a loan applicant including score, trend, consent, and land verification status.",
+            responses={404: {"description": "Loan application not found"}})
 async def applicant_detail(app_id: str, db: AsyncSession = Depends(get_db), _: dict = Depends(get_current_user)):
     service = LoanService(db)
     detail = await service.get_applicant_detail(app_id)
@@ -106,7 +126,10 @@ async def applicant_detail(app_id: str, db: AsyncSession = Depends(get_db), _: d
     return detail
 
 
-@router.patch("/{app_id}/review", response_model=LoanApplicationResponse)
+@router.patch("/{app_id}/review", response_model=LoanApplicationResponse,
+              summary="Review a loan application",
+              description="Approve, reject, or mark a loan as disbursed. Requires Loan Officer, Bank Analyst, or Platform Admin.",
+              responses={403: {"description": "Insufficient permissions"}, 404: {"description": "Loan application not found"}})
 async def review_loan(
     app_id: str,
     data: LoanReviewRequest,

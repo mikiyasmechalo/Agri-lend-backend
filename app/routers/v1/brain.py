@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.credit import CreditScoreResponse
@@ -9,7 +9,10 @@ from app.core.dependencies import get_current_user, require_roles
 router = APIRouter(prefix="/brain", tags=["Brain Integration"])
 
 
-@router.post("/trigger-score/{farmer_id}", response_model=CreditScoreResponse)
+@router.post("/trigger-score/{farmer_id}", response_model=CreditScoreResponse,
+             summary="Trigger score calculation for a farmer",
+             description="Triggers an on-demand credit score calculation for a specific farmer. Calls Amanuel's scoring service (or falls back to NDVI-based scoring).",
+             responses={404: {"description": "Farmer not found"}})
 async def trigger_score(
     farmer_id: str,
     db: AsyncSession = Depends(get_db),
@@ -22,7 +25,10 @@ async def trigger_score(
     return record
 
 
-@router.post("/trigger-all")
+@router.post("/trigger-all",
+             summary="Trigger score calculation for all farmers",
+             description="Triggers credit score recalculation for every registered farmer. Requires Platform Admin.",
+             responses={403: {"description": "Insufficient permissions"}})
 async def trigger_all_scores(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
@@ -32,7 +38,10 @@ async def trigger_all_scores(
     return {"detail": f"Scores calculated for {len(records)} farmers"}
 
 
-@router.get("/risk-tier/{farmer_id}")
+@router.get("/risk-tier/{farmer_id}",
+            summary="Get risk tier detail",
+            description="Returns risk tier classification, contributing factors, and recommended loan range for a farmer.",
+            responses={404: {"description": "No credit score found"}})
 async def risk_tier_detail(
     farmer_id: str,
     db: AsyncSession = Depends(get_db),
@@ -45,10 +54,39 @@ async def risk_tier_detail(
     return BrainService.get_risk_tier_detail(score.score_value, score.risk_tier)
 
 
-@router.post("/webhook/satellite-ingestion")
+@router.post("/webhook/satellite-ingestion",
+             summary="Satellite ingestion webhook",
+             description="Webhook endpoint called by Eyosiyas's pipeline when new satellite data is ingested for a parcel. Triggers score recalculation.")
 async def satellite_ingestion_webhook(
     parcel_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     service = BrainService(db)
     return await service.handle_satellite_ingestion_webhook(parcel_id)
+
+
+@router.get("/yield-prediction/{farmer_id}",
+            summary="Get yield prediction [STUB]",
+            description="**FLAGGED — confirm scope with team (FR-B-002).** Returns a stub yield prediction. Requires integration with Eyosiyas's crop yield model.",
+            responses={404: {"description": "Farmer not found"}})
+async def yield_prediction(
+    farmer_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+):
+    from app.services.farmer import FarmerService
+    service = FarmerService(db)
+    profile = await service.get_profile(farmer_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Farmer not found")
+    parcels = await service.get_parcels(farmer_id)
+    return {
+        "farmer_id": farmer_id,
+        "status": "stub",
+        "note": "Yield prediction (FR-B-002) is flagged — confirm scope with team before implementing. Requires Eyosiyas's crop yield model integration.",
+        "estimated_yield_quintals": None,
+        "confidence": None,
+        "crop_type": parcels[0].primary_crop if parcels else None,
+        "farm_size_hectares": float(parcels[0].size_hectares) if parcels else None,
+        "season": "2026/2027",
+    }

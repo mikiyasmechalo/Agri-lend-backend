@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, func as sa_func, or_
+from typing import Optional
 from app.models.auth import User, Role
 from app.models.audit import AuditLog
 from app.schemas.auth import UserCreate, UserUpdate
@@ -56,12 +57,23 @@ class AuthService:
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
 
-    async def get_all_users(self) -> list[dict]:
-        result = await self.db.execute(
-            select(User, Role.name).join(Role, User.role_id == Role.id).order_by(User.created_at.desc())
-        )
+    async def get_all_users(self, page: int = 1, page_size: int = 20, role: Optional[str] = None, search: Optional[str] = None) -> dict:
+        query = select(User, Role.name).join(Role, User.role_id == Role.id)
+        if role:
+            query = query.where(Role.name == role)
+        if search:
+            query = query.where(
+                or_(User.full_name.ilike(f"%{search}%"), User.email.ilike(f"%{search}%"))
+            )
+        count_query = select(sa_func.count()).select_from(query.subquery())
+        total_q = await self.db.execute(count_query)
+        total = total_q.scalar() or 0
+        query = query.order_by(User.created_at.desc())
+        offset = (page - 1) * page_size
+        query = query.offset(offset).limit(page_size)
+        result = await self.db.execute(query)
         rows = result.all()
-        return [
+        items = [
             {
                 "id": u.id,
                 "email": u.email,
@@ -73,6 +85,13 @@ class AuthService:
             }
             for u, role_name in rows
         ]
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": -(-total // page_size) if total > 0 else 0,
+        }
 
     async def admin_create_user(self, data: UserCreate) -> User:
         return await self.register_user(data)

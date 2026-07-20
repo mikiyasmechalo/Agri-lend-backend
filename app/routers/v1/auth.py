@@ -1,17 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from app.db.session import get_db
 from app.schemas.auth import (
     LoginRequest, RefreshRequest, TokenResponse, UserCreate, UserUpdate, UserResponse,
 )
 from app.services.auth import AuthService
 from app.core.dependencies import get_current_user
+from app.core.config import settings
 
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED,
+             summary="Register a new user",
+             description="Creates a new user account with the specified role (Farmer, Bank Analyst, etc). Public endpoint — rate limited.",
+             responses={400: {"description": "Validation error (e.g. role not found)"}})
+@limiter.limit(lambda: f"{settings.rate_limit_auth_per_minute}/minute")
+async def register(request: Request, data: UserCreate, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     try:
         user = await service.register_user(data)
@@ -20,8 +28,12 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
     return user
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+@router.post("/login", response_model=TokenResponse,
+             summary="Login with email and password",
+             description="Authenticates a user and returns JWT access + refresh tokens. Public endpoint — rate limited.",
+             responses={401: {"description": "Invalid credentials or account deactivated"}})
+@limiter.limit(lambda: f"{settings.rate_limit_auth_per_minute}/minute")
+async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     result = await service.authenticate(data.email, data.password)
     if not result:
@@ -29,7 +41,10 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(access_token=result[1], refresh_token=result[2])
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=TokenResponse,
+             summary="Refresh access token",
+             description="Exchange a valid refresh token for a new access token pair.",
+             responses={401: {"description": "Invalid or expired refresh token"}})
 async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     result = await service.refresh_access_token(data.refresh_token)
@@ -38,7 +53,10 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(access_token=result[0], refresh_token=result[1])
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse,
+            summary="Get current user profile",
+            description="Returns the authenticated user's profile information.",
+            responses={404: {"description": "User not found"}})
 async def get_me(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
     user = await service.get_user_by_id(current_user.get("sub"))
@@ -47,7 +65,10 @@ async def get_me(current_user: dict = Depends(get_current_user), db: AsyncSessio
     return user
 
 
-@router.patch("/me", response_model=UserResponse)
+@router.patch("/me", response_model=UserResponse,
+              summary="Update current user profile",
+              description="Update the authenticated user's profile fields (name, phone, locale).",
+              responses={404: {"description": "User not found"}})
 async def update_profile(
     data: UserUpdate,
     db: AsyncSession = Depends(get_db),

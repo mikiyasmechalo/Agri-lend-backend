@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func as sa_func
+from typing import Optional
 from app.models.farmer import FarmerProfile, FarmParcel
 from app.models.auth import User
 from app.schemas.farmer import FarmerRegistrationHub, FarmParcelCreate
@@ -14,6 +15,45 @@ class FarmerService:
 
     async def register_hub(self, data: FarmerRegistrationHub) -> tuple[FarmerProfile, FarmParcel | None]:
         from app.models.auth import Role
+
+    async def list_farmers(self, page: int = 1, page_size: int = 20, region: Optional[str] = None) -> dict:
+        query = (
+            select(FarmerProfile, FarmParcel.region, FarmParcel.primary_crop)
+            .join(FarmParcel, FarmParcel.farmer_id == FarmerProfile.id, isouter=True)
+            .order_by(FarmerProfile.created_at.desc())
+        )
+        count_query = select(sa_func.count(FarmerProfile.id))
+        if region:
+            query = query.where(FarmParcel.region == region)
+            count_query = count_query.select_from(FarmerProfile).join(
+                FarmParcel, FarmParcel.farmer_id == FarmerProfile.id, isouter=True
+            ).where(FarmParcel.region == region)
+        total_q = await self.db.execute(count_query)
+        total = total_q.scalar() or 0
+        offset = (page - 1) * page_size
+        query = query.offset(offset).limit(page_size)
+        result = await self.db.execute(query)
+        rows = result.all()
+        items = [
+            {
+                "id": p.id,
+                "full_name": p.full_name,
+                "phone_number": p.phone_number,
+                "region": region_val,
+                "primary_crop": crop_val,
+                "consent_status": p.consent_status,
+                "locale": p.locale,
+                "created_at": p.created_at,
+            }
+            for p, region_val, crop_val in rows
+        ]
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": -(-total // page_size),
+        }
         result = await self.db.execute(select(Role).where(Role.name == "Farmer"))
         role = result.scalar_one_or_none()
         if not role:

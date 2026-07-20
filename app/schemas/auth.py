@@ -1,7 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
+import re
 
 
 class TokenResponse(BaseModel):
@@ -15,22 +16,44 @@ class RefreshRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(..., max_length=255)
+    password: str = Field(..., min_length=6)
 
 
 class UserCreate(BaseModel):
-    email: str
-    password: str
-    full_name: str
-    role_name: str
-    phone_number: Optional[str] = None
+    email: str = Field(..., max_length=255)
+    password: str = Field(..., min_length=6)
+    full_name: str = Field(..., min_length=1, max_length=255)
+    role_name: str = Field(..., max_length=50)
+    phone_number: Optional[str] = Field(None, max_length=20)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", v):
+            raise ValueError("Invalid email format")
+        return v
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^\+?[0-9]{7,15}$", v):
+            raise ValueError("Invalid phone number format")
+        return v
 
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = None
-    phone_number: Optional[str] = None
-    locale: Optional[str] = None
+    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    phone_number: Optional[str] = Field(None, max_length=20)
+    locale: Optional[str] = Field(None, max_length=10)
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v and not re.match(r"^\+?[0-9]{7,15}$", v):
+            raise ValueError("Invalid phone number format")
+        return v
 
 
 class UserResponse(BaseModel):
@@ -58,7 +81,7 @@ class UserAdminResponse(BaseModel):
 
 
 class RoleAssignment(BaseModel):
-    role_name: str
+    role_name: str = Field(..., max_length=50)
 
 
 class RoleResponse(BaseModel):

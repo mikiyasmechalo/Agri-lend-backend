@@ -19,7 +19,11 @@ class CreditScoreResponse(BaseModel):
 
 
 class CreditScoreHistoryResponse(BaseModel):
-    scores: list[CreditScoreResponse]
+    items: list[CreditScoreResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
     trend: str
 
 

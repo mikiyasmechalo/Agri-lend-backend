@@ -144,12 +144,15 @@ class AdminService:
                 "last_trained": str(active.deployed_at) if active and active.deployed_at else "2026-06-15",
             }
 
-    async def get_model_versions(self) -> list[dict]:
+    async def get_model_versions(self, page: int = 1, page_size: int = 20) -> dict:
+        count_q = await self.db.execute(select(sa_func.count(ModelVersion.id)))
+        total = count_q.scalar() or 0
+        offset = (page - 1) * page_size
         result = await self.db.execute(
-            select(ModelVersion).order_by(ModelVersion.created_at.desc())
+            select(ModelVersion).order_by(ModelVersion.created_at.desc()).offset(offset).limit(page_size)
         )
         versions = result.scalars().all()
-        return [
+        items = [
             {
                 "id": str(v.id),
                 "version": v.version,
@@ -163,6 +166,13 @@ class AdminService:
             }
             for v in versions
         ]
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": -(-total // page_size) if total > 0 else 0,
+        }
 
     async def get_active_model_version(self) -> ModelVersion | None:
         result = await self.db.execute(
