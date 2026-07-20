@@ -17,3 +17,8 @@ class BankPartnerResponse(BaseModel):
     onboarding_date: datetime
 
     model_config = {"from_attributes": True}
+
+
+class BankSettingsUpdate(BaseModel):
+    bank_name: Optional[str] = None
+    subscription_tier: Optional[str] = None

@@ -30,3 +30,53 @@ class LoanApplicationResponse(BaseModel):
 
 class LoanReviewRequest(BaseModel):
     status: LoanStatus
+
+
+class LoanListFilter(BaseModel):
+    status: Optional[LoanStatus] = None
+    region: Optional[str] = None
+    crop_type: Optional[str] = None
+    min_amount: Optional[Decimal] = None
+    max_amount: Optional[Decimal] = None
+    page: int = 1
+    page_size: int = 20
+
+
+class ApplicantDetailResponse(BaseModel):
+    application: LoanApplicationResponse
+    farmer_name: str
+    farmer_phone: str
+    farmer_region: str
+    farmer_crop: str
+    farm_size_hectares: Optional[Decimal]
+    credit_score_current: Optional[int]
+    risk_tier: Optional[str]
+    score_trend: str
+    consent_status: bool
+    land_verified: bool
+
+
+class DashboardReportResponse(BaseModel):
+    total: int
+    approved: int
+    rejected: int
+    pending: int
+    disbursed: int
+
+
+class RiskHeatmapPoint(BaseModel):
+    lat: float
+    lng: float
+    risk_tier: str
+    farmer_count: int
+    avg_score: float
+    region: str
+
+
+class HighRiskLoanWarning(BaseModel):
+    application_id: UUID
+    farmer_name: str
+    amount: Decimal
+    score: int
+    risk_tier: str
+    reason: str
